@@ -8,7 +8,7 @@ import io
 
 def test_health():
     """Test the health endpoint."""
-    response = requests.get("http://162.243.85.187:8000/health")
+    response = requests.get("http://localhost:8000/health")
     print("Health Check:", response.json())
 
 
@@ -37,7 +37,7 @@ def test_predict(image_path: str, output_dir: str = "."):
     # Open and send the image
     with open(image_path, "rb") as f:
         files = {"file": (Path(image_path).name, f, "image/jpeg")}
-        response = requests.post("http://162.243.85.187:8000/predict", files=files)
+        response = requests.post("http://localhost:8000/predict", files=files)
     
     if response.status_code == 200:
         result = response.json()
@@ -106,7 +106,7 @@ def test_load_model(model_path: str):
         model_path: Path to the model file
     """
     response = requests.post(
-        "http://162.243.85.187:8000/load_model",
+        "http://localhost:8000/load_model",
         params={"model_path": model_path}
     )
     print("Load Model:", response.json())
