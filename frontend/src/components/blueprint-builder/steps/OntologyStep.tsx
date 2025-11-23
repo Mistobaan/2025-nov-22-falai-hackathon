@@ -9,12 +9,26 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 interface OntologyStepProps {
   categories: string[];
   setCategories: (categories: string[]) => void;
+  selectedDefects: string[];
+  setSelectedDefects: (defects: string[]) => void;
+  productType: string;
+  setProductType: (type: string) => void;
   onBack: () => void;
   onNext: () => void;
   objects?: any[]; // Added objects prop to access uploaded images
 }
 
-export default function OntologyStep({ categories, setCategories, onBack, onNext, objects = [] }: OntologyStepProps) {
+export default function OntologyStep({ 
+  categories, 
+  setCategories, 
+  selectedDefects,
+  setSelectedDefects,
+  productType,
+  setProductType,
+  onBack, 
+  onNext, 
+  objects = [] 
+}: OntologyStepProps) {
   const [newCategory, setNewCategory] = useState("");
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -56,6 +70,9 @@ export default function OntologyStep({ categories, setCategories, onBack, onNext
               const data = await res.json();
               if (data.suggestions) {
                 setSuggestions(data.suggestions);
+              }
+              if (data.productType) {
+                setProductType(data.productType);
               }
             }
           } catch (err) {
@@ -106,39 +123,88 @@ export default function OntologyStep({ categories, setCategories, onBack, onNext
         <div className="bg-muted/30 p-4 rounded-lg border border-dashed">
           <div className="flex items-center gap-2 mb-3">
             <Sparkles className="h-4 w-4 text-purple-500" />
-            <h3 className="font-semibold text-sm">AI Suggestions</h3>
+            <h3 className="font-semibold text-sm">AI-Powered Defect Suggestions</h3>
             {loadingSuggestions && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
           </div>
           
           {loadingSuggestions ? (
-            <p className="text-xs text-muted-foreground">Analyzing your object to suggest defects...</p>
-          ) : suggestions.length > 0 ? (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground mb-2">Based on the uploaded image, we detected these potential defects:</p>
-              <div className="flex flex-wrap gap-2">
+              <p className="text-xs text-muted-foreground">Analyzing your product image with Claude AI...</p>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse"></div>
+                <span>Identifying product type</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse delay-100"></div>
+                <span>Analyzing potential defects</span>
+              </div>
+            </div>
+          ) : suggestions.length > 0 ? (
+            <div className="space-y-3">
+              {productType && (
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-md p-2">
+                  <p className="text-xs">
+                    <span className="font-semibold text-purple-700 dark:text-purple-300">Detected Product:</span>{' '}
+                    <span className="text-muted-foreground">{productType}</span>
+                  </p>
+                </div>
+              )}
+              
+              <p className="text-xs text-muted-foreground">
+                Click to add suggested defect categories (sorted by relevance):
+              </p>
+              
+              <div className="space-y-2 max-h-64 overflow-y-auto">
                 {suggestions.map((s, i) => (
-                  <button
+                  <div
                     key={i}
-                    onClick={() => addCategory(s.name)}
-                    disabled={categories.includes(s.name)}
-                    className={`text-xs flex items-center gap-1 px-2 py-1 rounded-full border transition-colors ${
-                      categories.includes(s.name) 
-                        ? 'bg-muted text-muted-foreground cursor-default' 
-                        : 'bg-background hover:bg-primary/10 hover:border-primary cursor-pointer'
+                    className={`group relative border rounded-lg p-3 transition-all ${
+                      categories.includes(s.name)
+                        ? 'bg-muted/50 border-muted cursor-default opacity-60'
+                        : 'bg-background hover:bg-primary/5 hover:border-primary/50 cursor-pointer hover:shadow-sm'
                     }`}
+                    onClick={() => !categories.includes(s.name) && addCategory(s.name)}
                   >
-                    <Plus className="h-3 w-3" />
-                    {s.name}
-                    <span className={`ml-1 w-1.5 h-1.5 rounded-full ${
-                      s.confidence === 'High' ? 'bg-green-500' : 
-                      s.confidence === 'Medium' ? 'bg-yellow-500' : 'bg-gray-300'
-                    }`} />
-                  </button>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          {!categories.includes(s.name) && (
+                            <Plus className="h-3 w-3 text-primary flex-shrink-0" />
+                          )}
+                          <span className="font-medium text-sm">{s.name}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              s.confidence === 'High'
+                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                : s.confidence === 'Medium'
+                                ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                            }`}
+                          >
+                            {s.confidence}
+                          </span>
+                        </div>
+                        {s.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-2 mb-1">
+                            {s.description}
+                          </p>
+                        )}
+                        {s.reasoning && (
+                          <p className="text-[11px] text-muted-foreground/80 italic">
+                            💡 {s.reasoning}
+                          </p>
+                        )}
+                      </div>
+                      {categories.includes(s.name) && (
+                        <span className="text-xs text-muted-foreground flex-shrink-0">✓ Added</span>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground italic">No specific suggestions found. Try adding some manually.</p>
+            <p className="text-xs text-muted-foreground italic">No AI suggestions available. Upload an image in the previous step or add categories manually below.</p>
           )}
         </div>
 
@@ -160,31 +226,80 @@ export default function OntologyStep({ categories, setCategories, onBack, onNext
               No categories defined yet. Add one above.
             </div>
           ) : (
-            categories.map((cat, index) => (
-              <div key={index} className="flex items-center justify-between p-3 bg-muted/30 rounded-md border">
-                <span className="font-medium">{index + 1}. {cat}</span>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => removeCategory(index)}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-sm">Defect Categories ({categories.length})</h3>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => setSelectedDefects(categories)}
+                    className="text-xs h-7"
+                  >
+                    Select All
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => setSelectedDefects([])}
+                    className="text-xs h-7"
+                  >
+                    Select None
+                  </Button>
+                </div>
               </div>
-            ))
+              
+              {categories.map((cat, index) => (
+                <div key={index} className="flex items-center justify-between p-3 bg-muted/30 rounded-md border">
+                  <div className="flex items-center gap-3 flex-1">
+                    <input
+                      type="checkbox"
+                      id={`defect-${index}`}
+                      checked={selectedDefects.includes(cat)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedDefects([...selectedDefects, cat]);
+                        } else {
+                          setSelectedDefects(selectedDefects.filter(d => d !== cat));
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    <label htmlFor={`defect-${index}`} className="font-medium cursor-pointer flex-1">
+                      {index + 1}. {cat}
+                    </label>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => removeCategory(index)}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              
+              <div className="bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-300 p-3 rounded-md text-sm">
+                <strong>Selected for generation:</strong> {selectedDefects.length} of {categories.length} defects
+              </div>
+            </>
           )}
         </div>
 
         <div className="bg-blue-500/10 text-blue-500 p-4 rounded-md text-sm">
-          <strong>Tip:</strong> Try to keep categories distinct. A "scratch" is different from a "crack".
+          <strong>Tip:</strong> Try to keep categories distinct. A "scratch" is different from a "crack". Select the defects you want to generate images for.
         </div>
       </div>
 
       <div className="flex justify-between pt-4">
         <Button variant="outline" onClick={onBack}>Back</Button>
-        <Button onClick={onNext} disabled={categories.length === 0} size="lg">
-          Next: Generate Examples
+        <Button 
+          onClick={onNext} 
+          disabled={categories.length === 0 || selectedDefects.length === 0} 
+          size="lg"
+        >
+          Next: Generate {selectedDefects.length} Defect{selectedDefects.length !== 1 ? 's' : ''}
         </Button>
       </div>
     </div>

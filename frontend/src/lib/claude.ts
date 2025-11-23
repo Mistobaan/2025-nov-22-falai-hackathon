@@ -32,18 +32,37 @@ export async function analyzeImageForDefects(imageBase64: string) {
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
 
     const prompt = `
-    Analyze this image of a manufactured product. 
-    Based on the visual characteristics of the object, identify which of the following manufacturing defects are MOST likely to occur or be relevant to this specific type of object.
+    You are an expert in manufacturing quality control and defect detection. 
+    Analyze this image of a manufactured product carefully.
     
-    Candidate Defects:
+    Your task:
+    1. Identify what type of product/component this is (e.g., battery, circuit board, metal part, plastic component, etc.)
+    2. Based on the product type, material, and manufacturing process, suggest the MOST RELEVANT defect categories that could occur
+    3. Consider both visual defects (scratches, cracks, discoloration) and functional defects (misalignment, missing parts, dimensional issues)
+    
+    Common defect categories to consider (but feel free to suggest others):
     ${DEFECT_LIST.map(d => `- ${d}`).join('\n')}
     
-    Return a JSON object with a key "suggestions" containing an array of objects, each with:
-    - "name": The short name of the defect (e.g., "Misaligned Label").
-    - "description": The full description from the list.
-    - "confidence": "High", "Medium", or "Low" based on relevance to the object material/type.
+    Return a JSON object with:
+    {
+      "productType": "Brief description of what the product is",
+      "suggestions": [
+        {
+          "name": "Short defect category name (2-4 words, e.g., 'Surface Scratches', 'Label Misalignment')",
+          "description": "Detailed description of this defect type and how it manifests",
+          "confidence": "High" | "Medium" | "Low",
+          "reasoning": "Brief explanation of why this defect is relevant to this product"
+        }
+      ]
+    }
     
-    Only return the JSON. Do not include any other text.
+    Provide 5-10 most relevant defect categories, prioritized by likelihood and impact.
+    Focus on defects that are:
+    - Visually detectable in images
+    - Common for this type of product
+    - Important for quality control
+    
+    Only return valid JSON. No markdown, no additional text.
   `;
 
     const message = await anthropic.messages.create({

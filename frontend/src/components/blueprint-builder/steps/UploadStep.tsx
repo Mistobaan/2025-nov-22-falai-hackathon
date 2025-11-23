@@ -3,24 +3,90 @@
 import React, { useState } from 'react'
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Upload, X } from "lucide-react"
+import { Upload, X, AlertCircle } from "lucide-react"
 
 interface UploadStepProps {
   objects: any[];
   setObjects: (objects: any[]) => void;
   onNext: () => void;
+  analysisError: string | null;
+  setAnalysisError: (error: string | null) => void;
+  isAnalyzing: boolean;
+  setIsAnalyzing: (analyzing: boolean) => void;
 }
 
-export default function UploadStep({ objects, setObjects, onNext }: UploadStepProps) {
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+export default function UploadStep({ 
+  objects, 
+  setObjects, 
+  onNext,
+  analysisError,
+  setAnalysisError,
+  isAnalyzing,
+  setIsAnalyzing
+}: UploadStepProps) {
+  
+  const analyzeImage = async (file: File) => {
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    
+    try {
+      const reader = new FileReader();
+      
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      
+      const base64String = await base64Promise;
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Analysis timed out after 120 seconds")), 120000)
+      );
+      
+      const response: any = await Promise.race([
+        fetch('/api/analyze-defects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64String })
+        }),
+        timeoutPromise
+      ]);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API request failed with status ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Analysis succeeded
+      setAnalysisError(null);
+      
+    } catch (error: any) {
+      console.error("Claude analysis failed:", error);
+      setAnalysisError(
+        error.message || "Failed to analyze image with Claude AI. Please check your API key and try again."
+      );
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+  
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const newFiles = Array.from(e.target.files).map(file => ({
-        id: Math.random().toString(36).substr(2, 9),
+        id: crypto.randomUUID(), // Use UUID instead of random string
         name: file.name,
-        url: URL.createObjectURL(file), // Mock URL for preview
+        url: URL.createObjectURL(file),
         file: file
       }));
       setObjects([...objects, ...newFiles]);
+      
+      // Trigger Claude analysis on the first uploaded file
+      if (newFiles.length > 0) {
+        await analyzeImage(newFiles[0].file);
+      }
     }
   };
 
@@ -84,9 +150,28 @@ export default function UploadStep({ objects, setObjects, onNext }: UploadStepPr
         </div>
       )}
 
+      {/* Retry Analysis Button */}
+      {analysisError && objects.length > 0 && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            onClick={() => analyzeImage(objects[0].file)}
+            disabled={isAnalyzing}
+            className="border-destructive/50 text-destructive hover:bg-destructive/10"
+          >
+            <AlertCircle className="h-4 w-4 mr-2" />
+            Retry AI Analysis
+          </Button>
+        </div>
+      )}
+
       <div className="flex justify-end pt-4">
-        <Button onClick={onNext} disabled={objects.length === 0} size="lg">
-          Next: Define Categories
+        <Button 
+          onClick={onNext} 
+          disabled={objects.length === 0 || isAnalyzing || analysisError !== null} 
+          size="lg"
+        >
+          {isAnalyzing ? 'Analyzing...' : 'Next: Define Categories'}
         </Button>
       </div>
     </div>
