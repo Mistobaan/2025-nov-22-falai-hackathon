@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
 import { CheckCircle2, XCircle, RefreshCw, Edit2, Loader2 } from "lucide-react"
 import DefectEditor from '../DefectEditor'
+import { useToast } from "@/hooks/useToast"
 
 interface ReviewStepProps {
   objects: any[];
@@ -24,24 +25,27 @@ export default function ReviewStep({
   matrix, 
   setMatrix, 
   onBack, 
-  onNext 
-}: ReviewStepProps) {
+  onNext,
+  blueprintId
+}: ReviewStepProps & { blueprintId?: string }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState({ current: 0, total: 0 });
   const [editingCell, setEditingCell] = useState<{objId: string, cat: string} | null>(null);
-  const [blueprintId] = useState(() => crypto.randomUUID());
+  const { showError, showSuccess } = useToast();
 
   // Initialize matrix and trigger generation
   useEffect(() => {
     const initializeAndGenerate = async () => {
+      if (!blueprintId) return;
+
+      // Check if we need to initialize the matrix locally
       if (Object.keys(matrix).length === 0) {
-        // Initialize matrix with pending status
         const newMatrix: any = {};
         objects.forEach(obj => {
           newMatrix[obj.id] = {};
           categories.forEach(cat => {
             newMatrix[obj.id][cat] = {
-              status: selectedDefects.includes(cat) ? 'generating' : 'skipped',
+              status: selectedDefects.includes(cat) ? 'pending' : 'skipped',
               imageUrl: null,
               notes: ''
             };
@@ -49,17 +53,96 @@ export default function ReviewStep({
         });
         setMatrix(newMatrix);
 
-        // Trigger generation for selected defects
+        // Trigger generation if needed
         if (selectedDefects.length > 0) {
-          await generateDefectImages(newMatrix);
+            // Check if generation already started/completed
+            try {
+                const res = await fetch(`/api/blueprints/${blueprintId}/poll`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.status === 'ready_for_generation' || data.status === 'draft') {
+                        await triggerGeneration();
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to check status", e);
+            }
         }
       }
     };
 
     initializeAndGenerate();
-  }, []);
+  }, [blueprintId]);
 
-  const generateDefectImages = async (initialMatrix: any) => {
+  // Poll for updates
+  useEffect(() => {
+      if (!blueprintId) return;
+
+      let pollInterval: NodeJS.Timeout;
+
+      const checkStatus = async () => {
+          try {
+              const res = await fetch(`/api/blueprints/${blueprintId}/poll`);
+              if (!res.ok) return;
+
+              const data = await res.json();
+              
+              if (data.status === 'generating') {
+                  setIsGenerating(true);
+                  if (data.progress) {
+                      setGenerationProgress({ 
+                          current: data.progress.completed, 
+                          total: data.progress.total 
+                      });
+                  }
+              } else if (data.status === 'ready_for_review') {
+                  setIsGenerating(false);
+                  if (data.progress) {
+                      setGenerationProgress({ 
+                          current: data.progress.completed, 
+                          total: data.progress.total 
+                      });
+                  }
+              }
+
+              // Update matrix from jobs
+              if (data.jobs && Array.isArray(data.jobs)) {
+                  setMatrix((prev: any) => {
+                      const newMatrix = { ...prev };
+                      data.jobs.forEach((job: any) => {
+                          // Find which object/defect this job belongs to
+                          // Currently we only support 1 object, so we use objects[0]
+                          if (objects.length > 0) {
+                              const objId = objects[0].id;
+                              const defectName = job.defectName;
+                              
+                              if (!newMatrix[objId]) newMatrix[objId] = {};
+                              
+                              // Only update if changed to avoid flicker/loops if we were editing
+                              // But here we just overwrite with server state
+                              newMatrix[objId][defectName] = {
+                                  status: job.status === 'completed' ? 'pending' : (job.status === 'failed' ? 'failed' : 'generating'),
+                                  imageUrl: job.imageUrl,
+                                  notes: job.error || ''
+                              };
+                          }
+                      });
+                      return newMatrix;
+                  });
+              }
+
+          } catch (error) {
+              console.error("Polling error:", error);
+          }
+      };
+
+      pollInterval = setInterval(checkStatus, 2000);
+      return () => clearInterval(pollInterval);
+  }, [blueprintId, objects]);
+
+  const triggerGeneration = async () => {
+    if (!blueprintId) return;
+    
     setIsGenerating(true);
     
     // Build generation requests for selected defects only
@@ -67,9 +150,8 @@ export default function ReviewStep({
     for (const obj of objects) {
       for (const defect of selectedDefects) {
         requests.push({
+          defectName: defect,
           baseImageUrl: obj.url,
-          defectCategory: defect,
-          objectName: obj.name,
           productType: productType
         });
       }
@@ -81,69 +163,19 @@ export default function ReviewStep({
       const response = await fetch('/api/generate-text-to-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requests })
+        body: JSON.stringify({ 
+            blueprintId,
+            requests 
+        })
       });
 
       if (!response.ok) {
-        throw new Error('Generation failed');
+        throw new Error('Generation failed to start');
       }
-
-      const result = await response.json();
       
-      // Update matrix with generated images
-      const updatedMatrix = { ...initialMatrix };
-      let index = 0;
-      
-      for (const obj of objects) {
-        for (const defect of selectedDefects) {
-          const job = result.jobs[index];
-          if (job && job.status === 'completed') {
-            updatedMatrix[obj.id][defect] = {
-              status: 'pending',
-              imageUrl: job.imageUrl,
-              notes: ''
-            };
-          } else {
-            updatedMatrix[obj.id][defect] = {
-              status: 'failed',
-              imageUrl: null,
-              notes: job?.error || 'Generation failed'
-            };
-          }
-          index++;
-          setGenerationProgress({ current: index, total: requests.length });
-        }
-      }
-
-      setMatrix(updatedMatrix);
-      
-      // Save to blueprint API
-      await fetch(`/api/blueprints/${blueprintId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          objects,
-          categories,
-          selectedDefects,
-          productType,
-          matrix: updatedMatrix,
-          status: 'ready_for_review'
-        })
-      });
     } catch (error) {
       console.error('Generation error:', error);
-      const updatedMatrix = { ...initialMatrix };
-      objects.forEach(obj => {
-        selectedDefects.forEach(defect => {
-          updatedMatrix[obj.id][defect] = {
-            status: 'failed',
-            imageUrl: null,
-            notes: 'Generation failed'
-          };
-        });
-      });
-      setMatrix(updatedMatrix);
-    } finally {
+      showError("Failed to start generation");
       setIsGenerating(false);
     }
   };
@@ -174,6 +206,7 @@ export default function ReviewStep({
       }
     }));
     setEditingCell(null);
+    showSuccess("Image updated successfully");
   };
 
   const getStatusIcon = (status: string) => {
@@ -191,7 +224,7 @@ export default function ReviewStep({
     return objects.every(obj => 
       selectedDefects.every(cat => {
         const status = matrix[obj.id]?.[cat]?.status;
-        return status === 'approved' || status === 'impossible';
+        return status === 'approved' || status === 'impossible' || status === 'failed'; // Allow proceeding even if some failed
       })
     );
   };
@@ -230,7 +263,7 @@ export default function ReviewStep({
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                 <div 
                   className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(generationProgress.current / generationProgress.total) * 100}%` }}
+                  style={{ width: generationProgress.total > 0 ? `${(generationProgress.current / generationProgress.total) * 100}%` : '0%' }}
                 ></div>
               </div>
             </div>
@@ -284,14 +317,16 @@ export default function ReviewStep({
                             Not Selected
                           </div>
                         ) : cell.status === 'failed' ? (
-                          <div className="w-full h-full flex items-center justify-center text-destructive text-xs">
-                            Failed
+                          <div className="w-full h-full flex flex-col items-center justify-center text-destructive text-xs p-2 text-center">
+                            <XCircle className="h-6 w-6 mb-1" />
+                            <span>Generation Failed</span>
+                            <span className="text-[10px] opacity-70 mt-1">{cell.notes}</span>
                           </div>
                         ) : cell.imageUrl ? (
                           <img src={cell.imageUrl} alt={`${cat} on ${obj.name}`} className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
-                            N/A
+                            Pending
                           </div>
                         )}
                       </div>
@@ -354,6 +389,7 @@ export default function ReviewStep({
           currentImageUrl={matrix[editingCell.objId]?.[editingCell.cat]?.imageUrl}
           onSave={(imageUrl) => handleSaveEdited(editingCell.objId, editingCell.cat, imageUrl)}
           onCancel={() => setEditingCell(null)}
+          blueprintId={blueprintId}
         />
       )}
     </div>

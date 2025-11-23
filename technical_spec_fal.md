@@ -99,3 +99,10 @@ Tracks the evolution of prompts (GEPA optimization trace).
 ### 4.2. User Session
 *   **Context:** The frontend will maintain a `SessionContext` containing the current `BlueprintID` and `ActiveJobID`.
 *   **Persistence:** All critical state is persisted to Postgres. Redis is only for ephemeral cache/pub-sub.
+
+
+### Async Generation Pipeline
+We utilize `fal.ai`'s async API to handle the heavy lifting of image generation.
+1.  **Job Submission:** User requests are queued via `fal_client.submit_async`.
+2.  **State Management:** Jobs are tracked in Postgres with status updates via Webhooks.
+3.  **Data Lineage:** Every generated image is linked back to its specific Prompt and Blueprint version, enabling full traceability.

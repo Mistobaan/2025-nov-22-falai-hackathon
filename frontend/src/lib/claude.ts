@@ -27,7 +27,17 @@ const DEFECT_LIST = [
     "Incorrect dimensions (too long, short, or thick)"
 ];
 
-export async function analyzeImageForDefects(imageBase64: string) {
+export interface ClaudeDefectSuggestion {
+    name: string;
+    rationale: string;
+}
+
+export interface ClaudeAnalysisResult {
+    productType: string;
+    defects: ClaudeDefectSuggestion[];
+}
+
+export async function analyzeImageForDefects(imageBase64: string): Promise<ClaudeAnalysisResult> {
     // Remove data URL prefix if present
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
 
@@ -46,12 +56,10 @@ export async function analyzeImageForDefects(imageBase64: string) {
     Return a JSON object with:
     {
       "productType": "Brief description of what the product is",
-      "suggestions": [
+      "defects": [
         {
           "name": "Short defect category name (2-4 words, e.g., 'Surface Scratches', 'Label Misalignment')",
-          "description": "Detailed description of this defect type and how it manifests",
-          "confidence": "High" | "Medium" | "Low",
-          "reasoning": "Brief explanation of why this defect is relevant to this product"
+          "rationale": "Brief explanation of why this defect is relevant to this product and how it manifests"
         }
       ]
     }
@@ -99,7 +107,24 @@ export async function analyzeImageForDefects(imageBase64: string) {
         // Simple heuristic to find JSON block if wrapped in markdown
         const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
         const jsonStr = jsonMatch ? jsonMatch[0] : textBlock.text;
-        return JSON.parse(jsonStr);
+        const result = JSON.parse(jsonStr);
+
+        // Validate/Normalize structure
+        if (!result.productType || !Array.isArray(result.defects)) {
+            // Fallback for older prompt format if cached or hallucinated
+            if (result.suggestions && Array.isArray(result.suggestions)) {
+                return {
+                    productType: result.productType || "Unknown Product",
+                    defects: result.suggestions.map((s: any) => ({
+                        name: s.name,
+                        rationale: s.reasoning || s.description || "No rationale provided"
+                    }))
+                };
+            }
+            throw new Error("Invalid JSON structure returned by Claude");
+        }
+
+        return result as ClaudeAnalysisResult;
     } catch (e) {
         console.error("Failed to parse Claude response:", textBlock.text);
         throw new Error("Failed to parse defect suggestions");

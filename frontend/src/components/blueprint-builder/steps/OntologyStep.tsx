@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Trash2, Plus, Sparkles, Loader2 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { useToast } from "@/hooks/useToast"
 
 interface OntologyStepProps {
   categories: string[];
@@ -27,74 +28,112 @@ export default function OntologyStep({
   setProductType,
   onBack, 
   onNext, 
-  objects = [] 
-}: OntologyStepProps) {
+  objects = [],
+  blueprintId
+}: OntologyStepProps & { blueprintId?: string }) {
   const [newCategory, setNewCategory] = useState("");
+  const [newRationale, setNewRationale] = useState("");
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<string>('idle');
+  const { showError, showSuccess } = useToast();
 
+  // Poll for analysis results
   useEffect(() => {
-    const fetchSuggestions = async () => {
-      if (objects.length === 0 || suggestions.length > 0) return;
+    if (!blueprintId) return;
 
-      setLoadingSuggestions(true);
+    let pollInterval: NodeJS.Timeout;
+    let attempts = 0;
+    const maxAttempts = 60; // 2 minutes (assuming 2s interval)
+
+    const checkStatus = async () => {
       try {
-        // Use the first image for analysis
-        const imageToAnalyze = objects[0].url;
+        const res = await fetch(`/api/blueprints/${blueprintId}/poll`);
+        if (!res.ok) return;
         
-        // Since we are using object URLs (blobs) in the client, we need to convert to base64 to send to API
-        // However, for this demo/hackathon context, if the user uploaded a file, we have the File object.
-        // Let's read the file to base64.
-        const file = objects[0].file;
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          const base64String = reader.result as string;
+        const data = await res.json();
+        
+        if (data.status === 'analyzing') {
+          setLoadingSuggestions(true);
+          setAnalysisStatus('analyzing');
+        } else if (data.status === 'ready_for_generation' || data.suggestedDefects.length > 0) {
+          setLoadingSuggestions(false);
+          setAnalysisStatus('completed');
           
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Analysis timed out")), 120000)
-          );
-
-          try {
-            const res: any = await Promise.race([
-              fetch('/api/analyze-defects', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: base64String })
-              }),
-              timeoutPromise
-            ]);
-            
-            if (res.ok) {
-              const data = await res.json();
-              if (data.suggestions) {
-                setSuggestions(data.suggestions);
-              }
-              if (data.productType) {
-                setProductType(data.productType);
-              }
+          if (data.suggestedDefects) {
+            setSuggestions(data.suggestedDefects);
+            // Update categories list if empty
+            if (categories.length === 0) {
+              setCategories(data.suggestedDefects.map((d: any) => d.name));
             }
-          } catch (err) {
-             console.error("Analysis failed or timed out", err);
           }
-        };
-        reader.readAsDataURL(file);
+          
+          if (data.productType) {
+            setProductType(data.productType);
+          }
+          
+          clearInterval(pollInterval);
+        } else if (data.status === 'draft' && attempts > 5) {
+            // If still draft after a few attempts, maybe analysis failed or wasn't triggered
+            // But we rely on the backend to set status.
+        }
         
+        attempts++;
+        if (attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            if (loadingSuggestions) {
+                setLoadingSuggestions(false);
+                showError("Analysis timed out. Please try adding categories manually.");
+            }
+        }
       } catch (error) {
-        console.error("Failed to fetch suggestions", error);
-      } finally {
-        setLoadingSuggestions(false);
+        console.error("Polling error:", error);
       }
     };
 
-    fetchSuggestions();
-  }, [objects]); // Run once when objects are available
+    // Trigger analysis if needed (by updating the blueprint)
+    const triggerAnalysis = async () => {
+        if (objects.length > 0 && suggestions.length === 0 && !loadingSuggestions) {
+            try {
+                // Just touching the blueprint endpoint triggers the auto-analysis logic
+                // if conditions are met (image present, no defects)
+                await fetch(`/api/blueprints/${blueprintId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}) // Empty update to trigger check
+                });
+            } catch (e) {
+                console.error("Failed to trigger analysis", e);
+            }
+        }
+    };
 
-  const addCategory = (cat: string = newCategory) => {
-    if (cat.trim() && !categories.includes(cat.trim())) {
-      setCategories([...categories, cat.trim()]);
+    triggerAnalysis();
+    pollInterval = setInterval(checkStatus, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [blueprintId, objects]);
+
+  const addCategory = async (name: string = newCategory, rationale: string = newRationale) => {
+    if (name.trim() && !categories.includes(name.trim())) {
+      const newCats = [...categories, name.trim()];
+      setCategories(newCats);
       setNewCategory("");
+      setNewRationale("");
+      
+      // If we have a blueprintId, we should update the custom defects there too
+      if (blueprintId) {
+          try {
+              // We need to fetch current blueprint first to get existing custom defects
+              // Or we can just append to the list we maintain locally if we trust it syncs
+              // For now, let's just update the local state which will be used for generation
+              // Ideally, we should sync custom defects to the backend here.
+              
+              // TODO: Sync custom defects to backend
+          } catch (e) {
+              console.error("Failed to save custom defect", e);
+          }
+      }
     }
   };
 
@@ -163,7 +202,7 @@ export default function OntologyStep({
                         ? 'bg-muted/50 border-muted cursor-default opacity-60'
                         : 'bg-background hover:bg-primary/5 hover:border-primary/50 cursor-pointer hover:shadow-sm'
                     }`}
-                    onClick={() => !categories.includes(s.name) && addCategory(s.name)}
+                    onClick={() => !categories.includes(s.name) && addCategory(s.name, s.rationale)}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -172,26 +211,10 @@ export default function OntologyStep({
                             <Plus className="h-3 w-3 text-primary flex-shrink-0" />
                           )}
                           <span className="font-medium text-sm">{s.name}</span>
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              s.confidence === 'High'
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                : s.confidence === 'Medium'
-                                ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                            }`}
-                          >
-                            {s.confidence}
-                          </span>
                         </div>
-                        {s.description && (
-                          <p className="text-xs text-muted-foreground line-clamp-2 mb-1">
-                            {s.description}
-                          </p>
-                        )}
-                        {s.reasoning && (
+                        {s.rationale && (
                           <p className="text-[11px] text-muted-foreground/80 italic">
-                            💡 {s.reasoning}
+                            💡 {s.rationale}
                           </p>
                         )}
                       </div>
@@ -208,16 +231,28 @@ export default function OntologyStep({
           )}
         </div>
 
-        <div className="flex gap-2">
-          <Input 
-            placeholder="Type defect name (e.g., 'Crack')" 
-            value={newCategory}
-            onChange={(e) => setNewCategory(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-          <Button onClick={() => addCategory()} disabled={!newCategory.trim()}>
-            <Plus className="h-4 w-4 mr-2" /> Add Category
-          </Button>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+             <Input 
+                placeholder="Type defect name (e.g., 'Crack')" 
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="flex-1"
+              />
+          </div>
+          <div className="flex gap-2">
+              <Input 
+                placeholder="Rationale (optional)" 
+                value={newRationale}
+                onChange={(e) => setNewRationale(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="flex-1 text-sm"
+              />
+              <Button onClick={() => addCategory()} disabled={!newCategory.trim()}>
+                <Plus className="h-4 w-4 mr-2" /> Add Category
+              </Button>
+          </div>
         </div>
 
         <div className="space-y-2">

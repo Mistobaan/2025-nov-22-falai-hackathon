@@ -1,6 +1,7 @@
 "use client"
 
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Progress } from "@/components/ui/progress"
 import UploadStep from './steps/UploadStep'
 import OntologyStep from './steps/OntologyStep'
@@ -10,10 +11,12 @@ import FinalStep from './steps/FinalStep'
 interface BlueprintBuilderProps {
   projectId?: string
   blueprintId?: string
+  initialStep?: number
 }
 
-export default function BlueprintBuilder({ projectId, blueprintId }: BlueprintBuilderProps) {
-  const [currentStep, setCurrentStep] = useState(1);
+export default function BlueprintBuilder({ projectId, blueprintId, initialStep = 1 }: BlueprintBuilderProps) {
+  const router = useRouter();
+  const [currentStep, setCurrentStep] = useState(initialStep);
   const [objects, setObjects] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedDefects, setSelectedDefects] = useState<string[]>([]); // Defects selected for generation
@@ -22,14 +25,82 @@ export default function BlueprintBuilder({ projectId, blueprintId }: BlueprintBu
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  const storageKey = useMemo(
+    () => (blueprintId ? `blueprint-${blueprintId}-wizard` : 'blueprint-wizard-draft'),
+    [blueprintId]
+  );
+
+  // Load persisted wizard state to survive page navigation
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem(storageKey) : null;
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.objects)) setObjects(data.objects);
+      if (Array.isArray(data.categories)) setCategories(data.categories);
+      if (Array.isArray(data.selectedDefects)) setSelectedDefects(data.selectedDefects);
+      if (typeof data.productType === 'string') setProductType(data.productType);
+      if (data.matrix) setMatrix(data.matrix);
+      if (typeof data.currentStep === 'number') setCurrentStep(data.currentStep);
+    } catch (e) {
+      console.warn("Failed to load wizard state", e);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+
+  // Persist wizard state on change
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const payload = {
+        objects: objects.map((o) => ({ id: o.id, name: o.name, url: o.url })), // strip file references
+        categories,
+        selectedDefects,
+        productType,
+        matrix,
+        currentStep
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(storageKey, JSON.stringify(payload));
+      }
+    } catch (e) {
+      console.warn("Failed to persist wizard state", e);
+    }
+  }, [storageKey, objects, categories, selectedDefects, productType, matrix, currentStep]);
+
+  useEffect(() => {
+    setCurrentStep(initialStep);
+  }, [initialStep]);
+
+  const stepToRoute = (step: number, id: string) => {
+    if (!projectId || !id) return null;
+    const base = `/projects/${projectId}/blueprints/${id}`;
+    switch (step) {
+      case 1: return `${base}/upload`;
+      case 2: return `${base}/categories`;
+      case 3: return `${base}/review`;
+      case 4: return `${base}/final`;
+      default: return `${base}/upload`;
+    }
+  };
+
+  const goToStep = (next: number) => {
+    const safeStep = Math.min(Math.max(next, 1), 4);
+    setCurrentStep(safeStep);
+    const route = blueprintId ? stepToRoute(safeStep, blueprintId) : null;
+    if (route) router.push(route);
+  };
+
   const nextStep = () => {
     // Don't allow progression if there's an analysis error
     if (analysisError && currentStep === 1) {
+      console.error("Analysis error, not allowing progression");
       return;
     }
-    setCurrentStep(prev => Math.min(prev + 1, 4));
+    goToStep(currentStep + 1);
   };
-  const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
+  const prevStep = () => goToStep(currentStep - 1);
 
   const getProgress = () => {
     switch (currentStep) {
@@ -53,6 +124,7 @@ export default function BlueprintBuilder({ projectId, blueprintId }: BlueprintBu
             setAnalysisError={setAnalysisError}
             isAnalyzing={isAnalyzing}
             setIsAnalyzing={setIsAnalyzing}
+            blueprintId={blueprintId}
           />
         );
       case 2:
@@ -66,7 +138,8 @@ export default function BlueprintBuilder({ projectId, blueprintId }: BlueprintBu
             setProductType={setProductType}
             onBack={prevStep} 
             onNext={nextStep} 
-            objects={objects} 
+            objects={objects}
+            blueprintId={blueprintId}
           />
         );
       case 3:
@@ -80,6 +153,7 @@ export default function BlueprintBuilder({ projectId, blueprintId }: BlueprintBu
             setMatrix={setMatrix} 
             onBack={prevStep} 
             onNext={nextStep} 
+            blueprintId={blueprintId}
           />
         );
       case 4:

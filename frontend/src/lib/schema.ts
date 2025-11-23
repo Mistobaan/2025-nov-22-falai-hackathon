@@ -113,3 +113,113 @@ export const schema = {
     },
     "required": ["scene", "subjects"]
 };
+
+// ============================================================================
+// Blueprint Generation Types
+// ============================================================================
+
+/**
+ * Status of a blueprint throughout its lifecycle
+ */
+export type BlueprintStatus =
+    | 'draft'                    // Initial state, image uploaded
+    | 'analyzing'                // Claude is analyzing the image
+    | 'ready_for_generation'     // Defects selected, ready to generate
+    | 'generating'               // Generating defect images
+    | 'ready_for_review'         // Images generated, awaiting approval
+    | 'completed';               // All images approved
+
+/**
+ * A defect definition with name and rationale
+ */
+export interface DefectDefinition {
+    name: string;
+    rationale: string;
+    selected: boolean;           // Whether this defect is selected for generation
+    isCustom?: boolean;          // True if user-added, false if Claude-suggested
+}
+
+/**
+ * Status of a single image generation job
+ */
+export interface GenerationJob {
+    defectName: string;
+    status: 'pending' | 'generating' | 'completed' | 'failed';
+    imageUrl?: string;           // URL to generated image (if completed)
+    error?: string;              // Error message (if failed)
+    prompt?: string;             // Prompt used for generation
+    createdAt: string;
+    completedAt?: string;
+}
+
+/**
+ * Uploaded image metadata
+ */
+export interface UploadedImage {
+    id: string;                  // UUID
+    name: string;                // Original filename
+    url: string;                 // URL to image (local or cloud)
+    uploadedAt: string;
+}
+
+/**
+ * Complete blueprint structure
+ */
+export interface Blueprint {
+    id: string;                  // UUID
+    status: BlueprintStatus;
+
+    // Image
+    image?: UploadedImage;       // Single image (enforced by UI)
+
+    // Product info from Claude
+    productType?: string;        // e.g., "phone battery", "ceramic tile"
+
+    // Defects
+    suggestedDefects: DefectDefinition[];  // From Claude analysis
+    customDefects: DefectDefinition[];     // User-added
+
+    // Generation jobs
+    jobs: GenerationJob[];
+
+    // Timestamps
+    createdAt: string;
+    updatedAt: string;
+    analyzedAt?: string;         // When Claude analysis completed
+    generationStartedAt?: string;
+    generationCompletedAt?: string;
+}
+
+/**
+ * Helper to get all selected defects (suggested + custom)
+ */
+export function getSelectedDefects(blueprint: Blueprint): DefectDefinition[] {
+    return [
+        ...blueprint.suggestedDefects.filter(d => d.selected),
+        ...blueprint.customDefects.filter(d => d.selected)
+    ];
+}
+
+/**
+ * Helper to calculate overall progress
+ */
+export function getGenerationProgress(blueprint: Blueprint): { completed: number; total: number; percentage: number } {
+    const total = blueprint.jobs.length;
+    const completed = blueprint.jobs.filter(j => j.status === 'completed' || j.status === 'failed').length;
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { completed, total, percentage };
+}
+
+/**
+ * Validate blueprint structure
+ */
+export function validateBlueprint(data: any): data is Blueprint {
+    return (
+        typeof data === 'object' &&
+        typeof data.id === 'string' &&
+        typeof data.status === 'string' &&
+        Array.isArray(data.suggestedDefects) &&
+        Array.isArray(data.customDefects) &&
+        Array.isArray(data.jobs)
+    );
+}

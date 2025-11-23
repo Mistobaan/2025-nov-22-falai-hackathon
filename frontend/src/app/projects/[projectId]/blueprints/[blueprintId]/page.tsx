@@ -1,4 +1,4 @@
-import BlueprintBuilder from '@/components/blueprint-builder/BlueprintBuilder'
+import { redirect } from 'next/navigation'
 
 interface PageProps {
   params: Promise<{
@@ -9,6 +9,5 @@ interface PageProps {
 
 export default async function Page({ params }: PageProps) {
   const { projectId, blueprintId } = await params
-  
-  return <BlueprintBuilder projectId={projectId} blueprintId={blueprintId} />
+  redirect(`/projects/${projectId}/blueprints/${blueprintId}/upload`)
 }

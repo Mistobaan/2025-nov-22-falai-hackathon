@@ -1,29 +1,27 @@
-'use client'
+import { redirect } from 'next/navigation'
+import { createBlueprint, saveBlueprint, loadBlueprint } from '@/lib/blueprintStorage'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+export default async function NewBlueprintPage() {
+  const blueprintId = crypto.randomUUID()
+  const defaultProjectId = 'default-project'
 
-export default function NewBlueprintPage() {
-  const router = useRouter()
+  // Try the API first to keep a single codepath; fall back to direct creation if it fails.
+  try {
+    await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ''}/api/blueprints/${blueprintId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'draft' }),
+      cache: 'no-store',
+    })
+  } catch (err) {
+    // If the API call fails (e.g., dev server race), ensure the blueprint exists on disk.
+    const existing = await loadBlueprint(blueprintId)
+    if (!existing) {
+      await createBlueprint(blueprintId)
+    } else {
+      await saveBlueprint(existing)
+    }
+  }
 
-  useEffect(() => {
-    // Generate a new UUID for the blueprint
-    const blueprintId = crypto.randomUUID()
-    
-    // For now, use a default project ID. In a real app, this would come from user context
-    // or you'd show a project selector
-    const defaultProjectId = 'default-project'
-    
-    // Redirect to the new blueprint
-    router.push(`/projects/${defaultProjectId}/blueprints/${blueprintId}`)
-  }, [router])
-
-  return (
-    <div className="flex h-screen items-center justify-center bg-[#0a0e1a]">
-      <div className="text-center">
-        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-500 border-r-transparent"></div>
-        <p className="mt-4 text-gray-400">Creating new blueprint...</p>
-      </div>
-    </div>
-  )
+  redirect(`/projects/${defaultProjectId}/blueprints/${blueprintId}/upload`)
 }
