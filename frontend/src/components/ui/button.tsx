@@ -41,16 +41,25 @@ function Button({
   variant,
   size,
   asChild = false,
+  hoverIcon,
+  disableHoverIcon,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    hoverIcon?: string
+    disableHoverIcon?: boolean
   }) {
   const Comp = asChild ? Slot : "button"
+  const hideHoverIconBySize =
+    size === "icon" || size === "icon-sm" || size === "icon-lg"
+  const hideHoverIcon = disableHoverIcon ?? hideHoverIconBySize
 
   return (
     <Comp
       data-slot="button"
+      data-hover-icon={hoverIcon}
+      data-no-hover-icon={hideHoverIcon ? "true" : undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />
