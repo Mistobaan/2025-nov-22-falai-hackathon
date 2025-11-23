@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +11,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -20,7 +21,7 @@
             align-items: center;
             padding: 20px;
         }
-        
+
         .container {
             background: white;
             border-radius: 20px;
@@ -29,19 +30,19 @@
             max-width: 1200px;
             width: 100%;
         }
-        
+
         h1 {
             color: #333;
             margin-bottom: 10px;
             font-size: 2.5em;
         }
-        
+
         .subtitle {
             color: #666;
             margin-bottom: 30px;
             font-size: 1.1em;
         }
-        
+
         .upload-section {
             border: 3px dashed #667eea;
             border-radius: 15px;
@@ -51,21 +52,21 @@
             transition: all 0.3s ease;
             cursor: pointer;
         }
-        
+
         .upload-section:hover {
             border-color: #764ba2;
             background: #f8f9ff;
         }
-        
+
         .upload-section.dragover {
             background: #e8ebff;
             border-color: #764ba2;
         }
-        
+
         input[type="file"] {
             display: none;
         }
-        
+
         .upload-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -77,58 +78,58 @@
             transition: transform 0.2s;
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
-        
+
         .upload-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
         }
-        
+
         .upload-btn:active {
             transform: translateY(0);
         }
-        
+
         .results {
             display: none;
             margin-top: 30px;
         }
-        
+
         .results.show {
             display: block;
         }
-        
+
         .result-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
             margin-top: 20px;
         }
-        
+
         .result-card {
             background: #f8f9ff;
             border-radius: 15px;
             padding: 20px;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
         }
-        
+
         .result-card h3 {
             color: #667eea;
             margin-bottom: 15px;
             font-size: 1.3em;
         }
-        
+
         .result-card img {
             width: 100%;
             border-radius: 10px;
             margin-bottom: 10px;
         }
-        
+
         .score {
             font-size: 2em;
             font-weight: bold;
             color: #764ba2;
             margin: 10px 0;
         }
-        
+
         .label {
             display: inline-block;
             padding: 8px 20px;
@@ -136,27 +137,27 @@
             font-weight: bold;
             margin-top: 10px;
         }
-        
+
         .label.normal {
             background: #d4edda;
             color: #155724;
         }
-        
+
         .label.anomalous {
             background: #f8d7da;
             color: #721c24;
         }
-        
+
         .loading {
             display: none;
             text-align: center;
             margin: 20px 0;
         }
-        
+
         .loading.show {
             display: block;
         }
-        
+
         .spinner {
             border: 4px solid #f3f3f3;
             border-top: 4px solid #667eea;
@@ -166,12 +167,17 @@
             animation: spin 1s linear infinite;
             margin: 0 auto;
         }
-        
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
-        
+
         .error {
             background: #f8d7da;
             color: #721c24;
@@ -180,17 +186,18 @@
             margin-top: 20px;
             display: none;
         }
-        
+
         .error.show {
             display: block;
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>🔍 Anomalib Inference</h1>
         <p class="subtitle">Upload an image to detect anomalies and view saliency maps</p>
-        
+
         <div class="upload-section" id="uploadSection">
             <p style="font-size: 1.2em; color: #666; margin-bottom: 20px;">
                 📁 Drag & drop an image here or click to browse
@@ -200,14 +207,14 @@
             </button>
             <input type="file" id="fileInput" accept="image/*" onchange="uploadImage()">
         </div>
-        
+
         <div class="loading" id="loading">
             <div class="spinner"></div>
             <p style="margin-top: 15px; color: #667eea; font-size: 1.1em;">Processing image...</p>
         </div>
-        
+
         <div class="error" id="error"></div>
-        
+
         <div class="results" id="results">
             <h2 style="color: #333; margin-bottom: 20px;">Results</h2>
             <div class="result-grid">
@@ -224,6 +231,10 @@
                     <h3>Anomaly Map</h3>
                     <img id="anomalyMap" src="" alt="Anomaly Map">
                 </div>
+                <div class="result-card" id="anomalyOverlayCard" style="display: none;">
+                    <h3>Anomaly Overlay</h3>
+                    <img id="anomalyOverlay" src="" alt="Anomaly Overlay">
+                </div>
                 <div class="result-card" id="heatMapCard" style="display: none;">
                     <h3>Heat Map</h3>
                     <img id="heatMap" src="" alt="Heat Map">
@@ -231,22 +242,22 @@
             </div>
         </div>
     </div>
-    
+
     <script>
         const API_URL = 'http://localhost:8000';
-        
+
         // Drag and drop functionality
         const uploadSection = document.getElementById('uploadSection');
-        
+
         uploadSection.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadSection.classList.add('dragover');
         });
-        
+
         uploadSection.addEventListener('dragleave', () => {
             uploadSection.classList.remove('dragover');
         });
-        
+
         uploadSection.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadSection.classList.remove('dragover');
@@ -255,34 +266,34 @@
                 handleFile(files[0]);
             }
         });
-        
+
         async function uploadImage() {
             const fileInput = document.getElementById('fileInput');
             if (fileInput.files.length > 0) {
                 handleFile(fileInput.files[0]);
             }
         }
-        
+
         async function handleFile(file) {
             // Hide previous results and errors
             document.getElementById('results').classList.remove('show');
             document.getElementById('error').classList.remove('show');
             document.getElementById('loading').classList.add('show');
-            
+
             const formData = new FormData();
             formData.append('file', file);
-            
+
             try {
                 const response = await fetch(`${API_URL}/predict`, {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 if (!response.ok) {
                     const error = await response.json();
                     throw new Error(error.detail || 'Failed to process image');
                 }
-                
+
                 const result = await response.json();
                 displayResults(result);
             } catch (error) {
@@ -291,36 +302,42 @@
                 document.getElementById('loading').classList.remove('show');
             }
         }
-        
+
         function displayResults(result) {
             // Display score and label
             document.getElementById('score').textContent = result.pred_score.toFixed(4);
-            
+
             const labelEl = document.getElementById('label');
             labelEl.textContent = result.pred_label;
             labelEl.className = 'label ' + (result.pred_label.toLowerCase() === 'normal' ? 'normal' : 'anomalous');
-            
+
             // Display original image
             if (result.original_image) {
                 document.getElementById('originalImage').src = `data:image/png;base64,${result.original_image}`;
             }
-            
+
             // Display anomaly map if available
             if (result.anomaly_map) {
                 document.getElementById('anomalyMapCard').style.display = 'block';
                 document.getElementById('anomalyMap').src = `data:image/png;base64,${result.anomaly_map}`;
             }
-            
+
+            // Display anomaly overlay if available
+            if (result.anomaly_overlay) {
+                document.getElementById('anomalyOverlayCard').style.display = 'block';
+                document.getElementById('anomalyOverlay').src = `data:image/png;base64,${result.anomaly_overlay}`;
+            }
+
             // Display heat map if available
             if (result.heat_map) {
                 document.getElementById('heatMapCard').style.display = 'block';
                 document.getElementById('heatMap').src = `data:image/png;base64,${result.heat_map}`;
             }
-            
+
             // Show results
             document.getElementById('results').classList.add('show');
         }
-        
+
         function showError(message) {
             const errorEl = document.getElementById('error');
             errorEl.textContent = `Error: ${message}`;
@@ -328,4 +345,5 @@
         }
     </script>
 </body>
+
 </html>
