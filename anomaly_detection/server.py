@@ -7,6 +7,9 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 import torch
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +36,97 @@ def tensor_to_python(value):
     elif isinstance(value, (np.integer, np.floating)):
         return value.item()
     return value
+
+
+def apply_jet_colormap(image_data) -> np.ndarray:
+    """
+    Apply jet colormap to a grayscale anomaly map.
+    
+    Args:
+        image_data: Tensor or numpy array (grayscale)
+        
+    Returns:
+        RGB numpy array with jet colormap applied
+    """
+    # Convert to numpy if needed
+    if isinstance(image_data, torch.Tensor):
+        image_array = image_data.detach().cpu().numpy()
+    else:
+        image_array = image_data
+    
+    # Ensure 2D array (grayscale)
+    if len(image_array.shape) == 3:
+        if image_array.shape[0] == 1:
+            image_array = image_array.squeeze(0)
+        elif image_array.shape[2] == 1:
+            image_array = image_array.squeeze(2)
+    
+    # Normalize to 0-1 range
+    if image_array.dtype in [np.float32, np.float64]:
+        if image_array.min() < 0 or image_array.max() > 1:
+            image_array = (image_array - image_array.min()) / (image_array.max() - image_array.min() + 1e-8)
+    else:
+        image_array = image_array.astype(np.float32) / 255.0
+    
+    # Apply jet colormap
+    cmap = plt.get_cmap('jet')
+    colored = cmap(image_array)
+    
+    # Convert to RGB (remove alpha channel) and scale to 0-255
+    rgb_array = (colored[:, :, :3] * 255).astype(np.uint8)
+    
+    return rgb_array
+
+
+def overlay_anomaly_on_image(original_image, anomaly_map, alpha=0.4):
+    """
+    Overlay the colored anomaly map on the original image.
+    
+    Args:
+        original_image: Original image (numpy array or tensor)
+        anomaly_map: Anomaly map (numpy array or tensor, grayscale)
+        alpha: Transparency of the overlay (0.0 = invisible, 1.0 = opaque)
+        
+    Returns:
+        RGB numpy array with anomaly overlay
+    """
+    # Convert original image to numpy if needed
+    if isinstance(original_image, torch.Tensor):
+        orig_array = original_image.detach().cpu().numpy()
+    else:
+        orig_array = np.array(original_image)
+    
+    # Handle different shapes for original image
+    if len(orig_array.shape) == 3 and orig_array.shape[0] in [1, 3]:
+        orig_array = np.transpose(orig_array, (1, 2, 0))
+    
+    # Ensure original is RGB and uint8
+    if len(orig_array.shape) == 2:
+        orig_array = np.stack([orig_array] * 3, axis=-1)
+    
+    if orig_array.dtype != np.uint8:
+        if orig_array.max() <= 1.0:
+            orig_array = (orig_array * 255).astype(np.uint8)
+        else:
+            orig_array = orig_array.astype(np.uint8)
+    
+    # Apply jet colormap to anomaly map
+    colored_anomaly = apply_jet_colormap(anomaly_map)
+    
+    # Resize anomaly map to match original image if needed
+    if orig_array.shape[:2] != colored_anomaly.shape[:2]:
+        from PIL import Image as PILImage
+        colored_anomaly_pil = PILImage.fromarray(colored_anomaly)
+        colored_anomaly_pil = colored_anomaly_pil.resize(
+            (orig_array.shape[1], orig_array.shape[0]), 
+            PILImage.LANCZOS
+        )
+        colored_anomaly = np.array(colored_anomaly_pil)
+    
+    # Blend the images
+    overlay = (alpha * colored_anomaly + (1 - alpha) * orig_array).astype(np.uint8)
+    
+    return overlay
 
 
 def image_to_base64(image_data) -> str:
@@ -172,7 +266,8 @@ async def predict(file: UploadFile = File(...)):
         JSON response containing:
         - pred_score: Anomaly score
         - pred_label: Predicted label (normal/anomalous)
-        - anomaly_map: Base64 encoded saliency/anomaly map
+        - anomaly_map: Base64 encoded saliency/anomaly map with jet colormap
+        - anomaly_overlay: Base64 encoded original image with anomaly map overlay
         - heat_map: Base64 encoded heat map visualization
         - original_image: Base64 encoded original image
     """
@@ -205,9 +300,14 @@ async def predict(file: UploadFile = File(...)):
             "pred_label": str(predictions.pred_label),
         }
         
-        # Add anomaly map if available
+        # Add anomaly map if available (with jet colormap)
         if hasattr(predictions, 'anomaly_map') and predictions.anomaly_map is not None:
-            response["anomaly_map"] = image_to_base64(predictions.anomaly_map)
+            colored_anomaly_map = apply_jet_colormap(predictions.anomaly_map)
+            response["anomaly_map"] = image_to_base64(colored_anomaly_map)
+            
+            # Also create an overlay version
+            overlay = overlay_anomaly_on_image(image_array, predictions.anomaly_map, alpha=0.4)
+            response["anomaly_overlay"] = image_to_base64(overlay)
         
         # Add heat map if available
         if hasattr(predictions, 'heat_map') and predictions.heat_map is not None:
